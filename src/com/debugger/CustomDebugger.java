@@ -1,4 +1,4 @@
-package com.company;
+package com.debugger;
 
 import com.sun.jdi.AbsentInformationException;
 import com.sun.jdi.ArrayReference;

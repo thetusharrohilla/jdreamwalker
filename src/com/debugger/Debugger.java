@@ -1,4 +1,4 @@
-package com.company;
+package com.debugger;
 
 public interface Debugger {
     void connect(String host, int port) throws Exception;

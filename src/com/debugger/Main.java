@@ -1,8 +1,5 @@
-package com.company;
+package com.debugger;
 
-import com.sun.jdi.Bootstrap;
-import com.sun.jdi.Location;
-import com.sun.jdi.ReferenceType;
 import com.sun.jdi.VirtualMachine;
 
 public class Main {
