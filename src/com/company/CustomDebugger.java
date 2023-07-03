@@ -3,9 +3,12 @@ package com.company;
 import com.sun.jdi.AbsentInformationException;
 import com.sun.jdi.Bootstrap;
 import com.sun.jdi.IncompatibleThreadStateException;
+import com.sun.jdi.LocalVariable;
 import com.sun.jdi.Location;
 import com.sun.jdi.ReferenceType;
 import com.sun.jdi.StackFrame;
+import com.sun.jdi.ThreadReference;
+import com.sun.jdi.VMDisconnectedException;
 import com.sun.jdi.Value;
 import com.sun.jdi.VirtualMachine;
 import com.sun.jdi.VirtualMachineManager;
@@ -70,42 +73,57 @@ public class CustomDebugger implements Debugger {
         BreakpointRequest breakpointRequest = eventManager.createBreakpointRequest(location);
         breakpointRequest.enable();
 
-        // Start listening for events in a separate thread
-        Thread eventThread = new Thread(() -> {
-            EventQueue eventQueue = vm.eventQueue();
-            try {
-                while (true) {
-                    EventSet eventSet = eventQueue.remove();
-                    for (Event event: eventSet) {
-                        // Handle the event
-                        if (event instanceof BreakpointEvent) {
-                            handleBreakpointEvent((BreakpointEvent) event);
-                        }
+        EventQueue eventQueue = vm.eventQueue();
+        try {
+            while (true) {
+                EventSet eventSet = eventQueue.remove();
+                for (Event event: eventSet) {
+                    if (event instanceof BreakpointEvent) {
+                        handleBreakpointEvent((BreakpointEvent) event);
                     }
-                    eventSet.resume();
                 }
-            } catch (InterruptedException | IncompatibleThreadStateException | AbsentInformationException e) {
-                e.printStackTrace();
+                eventSet.resume();
             }
-        });
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } catch (VMDisconnectedException e) {
+            // Remote JVM disconnected or terminated
+            System.out.println("Remote JVM disconnected or terminated");
+        }
+        finally {
+            if (vm != null) {
+                vm.dispose();
+            }
+        }
 
-        eventThread.start();
     }
 
-    private void handleBreakpointEvent(BreakpointEvent event)
-            throws IncompatibleThreadStateException, AbsentInformationException {
-        // Retrieve the current stack frame
-        StackFrame stackFrame = event.thread().frame(0);
+    private void handleBreakpointEvent(BreakpointEvent event) {
+        System.out.println("Breakpoint hit at line " + event.location().lineNumber());
 
-        // Access the variable values or logs
-        Value variableValue = stackFrame.getValue(stackFrame.visibleVariableByName("variableName"));
-        System.out.println("Variable value: " + variableValue);
+        try {
+            ThreadReference thread = event.thread();
+            StackFrame frame = thread.frame(0);
+            List<StackFrame> frames = thread.frames();
 
-        // Handle other log or variable values as needed
-
-        // Resume the execution
-        event.thread().resume();
+            for (StackFrame stackFrame : frames) {
+                Location location = stackFrame.location();
+                try {
+                    // Retrieve and print the values of variables
+                    LocalVariable[] variables = stackFrame.visibleVariables().toArray(new LocalVariable[0]);
+                    for (LocalVariable variable : variables) {
+                        Value value = stackFrame.getValue(variable);
+                        System.out.println("    " + variable.name() + " = " + value);
+                    }
+                } catch (AbsentInformationException ex) {
+                    System.out.println("    Unable to retrieve variable information for this stack frame");
+                }
+            }
+        } catch (IncompatibleThreadStateException e) {
+            e.printStackTrace();
+        }
     }
+
 
     @Override
     public void disconnect() throws Exception {
