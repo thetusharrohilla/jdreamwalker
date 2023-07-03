@@ -27,7 +27,6 @@ public class CustomDebugger implements Debugger {
     @Override
     public void connect(String host, int port) throws Exception {
         VirtualMachineManager vmManager = Bootstrap.virtualMachineManager();
-
         AttachingConnector attachingConnector = null;
         for (Connector connector: vmManager.attachingConnectors()) {
             if ("com.sun.jdi.SocketAttach".equals(connector.name())) {
