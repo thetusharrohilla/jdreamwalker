@@ -1,16 +1,13 @@
 package com.debugger;
 
 import com.sun.jdi.AbsentInformationException;
-import com.sun.jdi.ArrayReference;
 import com.sun.jdi.Bootstrap;
-import com.sun.jdi.Field;
 import com.sun.jdi.IncompatibleThreadStateException;
+import com.sun.jdi.InvalidStackFrameException;
 import com.sun.jdi.LocalVariable;
 import com.sun.jdi.Location;
-import com.sun.jdi.ObjectReference;
 import com.sun.jdi.ReferenceType;
 import com.sun.jdi.StackFrame;
-import com.sun.jdi.StringReference;
 import com.sun.jdi.ThreadReference;
 import com.sun.jdi.VMDisconnectedException;
 import com.sun.jdi.Value;
@@ -27,24 +24,30 @@ import com.sun.jdi.request.EventRequestManager;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.logging.Logger;
 
 public class CustomDebugger implements Debugger {
-    private final ExecutorService executorService;
 
+    private static final Logger logger = Logger.getLogger(CustomDebugger.class.getName());
+
+    private final ExecutorService executorService;
+    private final BlockingQueue<DebugOutput> outputQueue;
     private VirtualMachine vm;
 
     public CustomDebugger() {
-        // Initialize the executor service with a single thread
         executorService = Executors.newSingleThreadExecutor();
+        outputQueue = new LinkedBlockingQueue<>();
     }
 
     @Override
     public void connect(String host, int port) throws Exception {
         VirtualMachineManager vmManager = Bootstrap.virtualMachineManager();
         AttachingConnector attachingConnector = null;
-        for (Connector connector: vmManager.attachingConnectors()) {
+        for (Connector connector : vmManager.attachingConnectors()) {
             if ("com.sun.jdi.SocketAttach".equals(connector.name())) {
                 attachingConnector = (AttachingConnector) connector;
                 break;
@@ -90,7 +93,7 @@ public class CustomDebugger implements Debugger {
         try {
             while (true) {
                 EventSet eventSet = eventQueue.remove();
-                for (Event event: eventSet) {
+                for (Event event : eventSet) {
                     if (event instanceof BreakpointEvent) {
                         // Handle the breakpoint event asynchronously
                         executorService.execute(() -> handleBreakpointEvent((BreakpointEvent) event));
@@ -113,83 +116,62 @@ public class CustomDebugger implements Debugger {
     }
 
     private void handleBreakpointEvent(BreakpointEvent event) {
-        System.out.println("Breakpoint hit at line " + event.location().lineNumber());
-
+        ThreadReference thread = event.thread();
         try {
-            ThreadReference thread = event.thread();
+            thread.suspend();
 
-            StackFrame frame = thread.frame(0);
+            // Retrieve the necessary information
+            String threadName = thread.name();
+            int lineNumber = event.location().lineNumber();
             List<StackFrame> frames = thread.frames();
 
-            for (StackFrame stackFrame: frames) {
-                Location location = stackFrame.location();
+            // Build the output message
+            StringBuilder output = new StringBuilder();
+            output.append("Breakpoint hit at line ").append(lineNumber).append("\n");
+            output.append("Thread: ").append(threadName).append("\n");
+
+            for (StackFrame stackFrame : frames) {
+                // ... retrieve variables and values
+
+                // Append the values of variables to the output
                 try {
-                    // Retrieve and print the values of variables
                     LocalVariable[] variables = stackFrame.visibleVariables().toArray(new LocalVariable[0]);
-                    for (LocalVariable variable: variables) {
+                    for (LocalVariable variable : variables) {
                         Value value = stackFrame.getValue(variable);
-                        String json = getVariableJson(variable, value);
-                        System.out.println("Variable: " + variable.name() + ", Value: " + json);
+                        output.append("Variable: ")
+                              .append(variable.name())
+                              .append(", Value: ")
+                              .append(value)
+                              .append("\n");
                     }
-                } catch (AbsentInformationException ex) {
-                    System.out.println("    Unable to retrieve variable information for this stack frame");
+                } catch (InvalidStackFrameException ex) {
+                    output.append("    Unable to retrieve value for variables in this stack frame").append("\n");
+                } catch (AbsentInformationException e) {
+                    output.append("    Absent information for variables in this stack frame").append("\n");
                 }
             }
+
+            DebugOutput debugOutput = new DebugOutput(thread, new StringBuilder(output.toString()));
+            outputQueue.add(debugOutput);
+            executorService.execute(this::processOutputQueue);
         } catch (IncompatibleThreadStateException e) {
             System.out.println("IncompatibleThreadStateException: " + e.getMessage());
+        } finally {
+            thread.resume();
         }
     }
 
-    private String getVariableJson(LocalVariable variable, Value value) {
-        StringBuilder jsonBuilder = new StringBuilder();
-        jsonBuilder.append("{");
-        jsonBuilder.append("\"name\":").append("\"").append(variable.name()).append("\"");
-        jsonBuilder.append(",");
-        jsonBuilder.append("\"type\":").append("\"").append(variable.typeName()).append("\"");
-        jsonBuilder.append(",");
-        jsonBuilder.append("\"value\":").append(getValueJson(value));
-        // Add more fields as needed
-        jsonBuilder.append("}");
-        return jsonBuilder.toString();
+    private void processOutputQueue() {
+        while (!outputQueue.isEmpty()) {
+            DebugOutput debugOutput = outputQueue.poll();
+            if (debugOutput != null) {
+                logThreadOutputs(debugOutput.getThread(), String.valueOf(debugOutput.getOutput()));
+            }
+        }
     }
 
-    private String getValueJson(Value value) {
-        if (value == null) {
-            return "null";
-        } else if (value instanceof StringReference) {
-            return "\"" + ((StringReference) value).value() + "\"";
-        } else if (value instanceof ArrayReference) {
-            ArrayReference arrayReference = (ArrayReference) value;
-            List<Value> arrayValues = arrayReference.getValues();
-            StringBuilder jsonBuilder = new StringBuilder();
-            jsonBuilder.append("[");
-            for (int i = 0; i < arrayValues.size(); i++) {
-                Value arrayValue = arrayValues.get(i);
-                jsonBuilder.append(getValueJson(arrayValue));
-                if (i < arrayValues.size() - 1) {
-                    jsonBuilder.append(",");
-                }
-            }
-            jsonBuilder.append("]");
-            return jsonBuilder.toString();
-        } else if (value instanceof ObjectReference) {
-            ObjectReference objectReference = (ObjectReference) value;
-            StringBuilder jsonBuilder = new StringBuilder();
-            jsonBuilder.append("{");
-            List<Field> fields = objectReference.referenceType().allFields();
-            for (int i = 0; i < fields.size(); i++) {
-                Field field = fields.get(i);
-                Value fieldValue = objectReference.getValue(field);
-                jsonBuilder.append("\"").append(field.name()).append("\":").append(getValueJson(fieldValue));
-                if (i < fields.size() - 1) {
-                    jsonBuilder.append(",");
-                }
-            }
-            jsonBuilder.append("}");
-            return jsonBuilder.toString();
-        } else {
-            return value.toString();
-        }
+    private void logThreadOutputs(ThreadReference thread, String output) {
+        logger.info("Thread: " + thread.name() + "\n" + output);
     }
 
     @Override
