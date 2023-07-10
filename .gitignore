@@ -1,0 +1,9 @@
+.classpath
+.project
+.settings/
+target/
+.idea/
+.DS_Store
+.git/
+apache-maven-3.2.2/
+dependency-reduced-pom.xml
