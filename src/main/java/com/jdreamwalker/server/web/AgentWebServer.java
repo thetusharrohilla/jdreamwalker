@@ -1,7 +1,12 @@
 package com.jdreamwalker.server.web;
 
 import com.jdreamwalker.handler.web.iface.BaseHttpHandler;
+import com.sun.net.httpserver.HttpContext;
 import com.sun.net.httpserver.HttpServer;
+import main.java.com.jdreamwalker.Authentication.RequestEnum;
+import main.java.com.jdreamwalker.Authentication.RequestHandler;
+import main.java.com.jdreamwalker.Authentication.RequestHandlerFactory;
+import main.java.com.jdreamwalker.util.TransformUtil;
 import org.reflections.Reflections;
 
 import java.io.IOException;
@@ -26,21 +31,23 @@ public class AgentWebServer {
         this.host = host;
     }
 
-    public static boolean createServer(final String host, final int port, final Instrumentation instrumentation) throws IOException, InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    public static boolean createServer(final String host, final int port, final Instrumentation instrumentation, final String agentArgs) throws IOException, InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
         if (Objects.nonNull(AGENT_WEB_SERVER)) {
             return true;
         }
-        INSTRUMENTATION_INSTANCE = instrumentation;
+        INSTRUMENTATION_INSTANCE = instrumentation;;
         AGENT_WEB_SERVER = HttpServer.create(new InetSocketAddress(host, port), 0);
-        return tryBinding();
+        RequestHandlerFactory RequestFactory = new RequestHandlerFactory();
+        RequestHandler request = RequestFactory.createProtocol(RequestEnum.HTTP, TransformUtil.fromJson(agentArgs, Object.class));
+        return tryBinding(request);
     }
 
-    private static boolean tryBinding() throws NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
+    private static boolean tryBinding(RequestHandler request) throws NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
         final Reflections reflections = new Reflections();
         final Set<Class<? extends BaseHttpHandler>> httpHandlers = reflections.getSubTypesOf(BaseHttpHandler.class);
         for (final Class<? extends BaseHttpHandler> baseHttpHandlerClass : httpHandlers) {
-            final BaseHttpHandler baseHttpHandler = baseHttpHandlerClass.getConstructor(Instrumentation.class)
-                    .newInstance(INSTRUMENTATION_INSTANCE);
+            final BaseHttpHandler baseHttpHandler = baseHttpHandlerClass.getConstructor(Instrumentation.class, RequestHandler.class)
+                    .newInstance(INSTRUMENTATION_INSTANCE, request);
             AGENT_WEB_SERVER.createContext(AGENT_WEB_SERVER_BASE_PATH + baseHttpHandler.getBaseUrl(), baseHttpHandler);
         }
         return true;
