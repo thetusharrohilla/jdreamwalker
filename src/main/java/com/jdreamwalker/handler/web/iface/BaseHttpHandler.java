@@ -15,12 +15,10 @@ public abstract class BaseHttpHandler implements HttpHandler {
     @Getter
     private final String baseUrl;
 
-    protected final RequestHandler request;
 
-    protected BaseHttpHandler(final Instrumentation instrumentation, final String baseUrl, RequestHandler request) {
+    protected BaseHttpHandler(final Instrumentation instrumentation, final String baseUrl) {
         this.instrumentation = instrumentation;
         this.baseUrl = baseUrl;
-        this.request = request;
 
     }
 
@@ -29,8 +27,4 @@ public abstract class BaseHttpHandler implements HttpHandler {
         exchange.getResponseBody().close();
     }
 
-    protected void handleUnauthorizedUser(final HttpExchange exchange) throws IOException {
-        exchange.sendResponseHeaders(401, 0); // 401 for Unauthorized status
-        exchange.getResponseBody().close();
-    }
 }

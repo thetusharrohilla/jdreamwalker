@@ -1,11 +1,14 @@
 package com.jdreamwalker.server.web;
 
 import com.jdreamwalker.handler.web.iface.BaseHttpHandler;
+import com.sun.net.httpserver.Filter;
+import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpContext;
 import com.sun.net.httpserver.HttpServer;
 import main.java.com.jdreamwalker.Authentication.RequestEnum;
 import main.java.com.jdreamwalker.Authentication.RequestHandler;
 import main.java.com.jdreamwalker.Authentication.RequestHandlerFactory;
+import main.java.com.jdreamwalker.Authentication.interceptor.AuthorizationFilter;
 import main.java.com.jdreamwalker.util.TransformUtil;
 import org.reflections.Reflections;
 
@@ -46,10 +49,11 @@ public class AgentWebServer {
         final Reflections reflections = new Reflections();
         final Set<Class<? extends BaseHttpHandler>> httpHandlers = reflections.getSubTypesOf(BaseHttpHandler.class);
         for (final Class<? extends BaseHttpHandler> baseHttpHandlerClass : httpHandlers) {
-            final BaseHttpHandler baseHttpHandler = baseHttpHandlerClass.getConstructor(Instrumentation.class, RequestHandler.class)
-                    .newInstance(INSTRUMENTATION_INSTANCE, request);
-            AGENT_WEB_SERVER.createContext(AGENT_WEB_SERVER_BASE_PATH + baseHttpHandler.getBaseUrl(), baseHttpHandler);
+            final BaseHttpHandler baseHttpHandler = baseHttpHandlerClass.getConstructor(Instrumentation.class)
+                    .newInstance(INSTRUMENTATION_INSTANCE);
+            AGENT_WEB_SERVER.createContext(AGENT_WEB_SERVER_BASE_PATH + baseHttpHandler.getBaseUrl(), baseHttpHandler).getFilters().add(new AuthorizationFilter(request));
         }
+
         return true;
     }
 
